@@ -211,6 +211,7 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     MovePicker moves{pos, m_td.history, tt_data ? tt_data->move : Move::none(), ss->killer};
     Move       best_move  = Move::none();
     Value      best_value = -VALUE_INF;
+    Value      moves_seen = 0;
     MoveList   quiets_played;
 
     // Clear child's killer move.
@@ -220,13 +221,27 @@ Value Worker::search(Position& pos, Stack* ss, Value alpha, Value beta, Depth de
     for (Move m = moves.next(); m != Move::none(); m = moves.next()) {
         // Do move
         Position pos_after = pos.move(m);
+        moves_seen++;
 
         // Put hash into repetition table. TODO: encapsulate this and any other future adjustment to do "on move" into a proper function
         m_repetition_info.push(pos_after.get_hash_key(), pos_after.is_reversible(m));
 
         // Get search value
         Depth new_depth = depth - 1 + pos_after.is_in_check();
-        Value value     = -search(pos_after, ss + 1, -beta, -alpha, new_depth, ply + 1);
+        Value value = -VALUE_INF;
+        
+        // PVS
+        if (moves_seen == 1) {
+            value = -search(pos_after, ss + 1, -beta, -alpha, new_depth, ply + 1);
+        } else {
+            // Null-window search
+            value = -search(pos_after, ss + 1, -alpha - 1, -alpha, new_depth, ply + 1);
+
+            // Re-search if it fails high
+            if (value > alpha && value < beta) {
+                value = -search(pos_after, ss + 1, -beta, -alpha, new_depth, ply + 1);
+            }
+        }
 
         // TODO: encapsulate this and any other future adjustment to do "on going back" into a proper function
         m_repetition_info.pop();
